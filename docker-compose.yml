@@ -1,0 +1,158 @@
+services:
+  mongodb:
+    image: mongo:6.0
+    container_name: cloudtier-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - cloudtier-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: cloudtier-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - cloudtier-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: cloudtier-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 6
+    networks:
+      - cloudtier-network
+    healthcheck:
+      test: kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  api:
+    build: .
+    container_name: cloudtier-api
+    ports:
+      - "8080:8080"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      APP_NAME: CloudTier
+      MONGO_URI: mongodb://mongodb:27017/
+      DB_NAME: cloudtier
+      METRICS_PORT: 9100
+    networks:
+      - cloudtier-network
+    command: python -m services.api.app
+    restart: unless-stopped
+
+  producer:
+    build: .
+    container_name: cloudtier-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    environment:
+      KAFKA_SERVER: kafka:29092
+      MONGO_URI: mongodb://mongodb:27017/
+      DB_NAME: cloudtier
+      METRICS_PORT: 9100
+    networks:
+      - cloudtier-network
+    command: python -m services.producer.app
+    restart: unless-stopped
+
+  consumer:
+    build: .
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    environment:
+      KAFKA_SERVER: kafka:29092
+      MONGO_URI: mongodb://mongodb:27017/
+      DB_NAME: cloudtier
+      METRICS_PORT: 9100
+    networks:
+      - cloudtier-network
+    command: python -m services.consumer.app
+    restart: unless-stopped
+
+  optimizer:
+    build: .
+    # No container_name: this service is scaled to 3 replicas (see `make up`) for
+    # leader election. Each replica uses its container HOSTNAME as its instance id.
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_URI: mongodb://mongodb:27017/
+      DB_NAME: cloudtier
+      METRICS_PORT: 9100
+    networks:
+      - cloudtier-network
+    command: python -m services.optimizer.app
+    restart: unless-stopped
+
+  migrator:
+    build: .
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_URI: mongodb://mongodb:27017/
+      DB_NAME: cloudtier
+    networks:
+      - cloudtier-network
+    command: python -m services.migrator.app
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: cloudtier-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - cloudtier-network
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: cloudtier-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - cloudtier-network
+
+networks:
+  cloudtier-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
