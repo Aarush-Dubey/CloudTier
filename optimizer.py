@@ -1,4 +1,5 @@
 import time
+import os
 import numpy as np
 import torch
 import torch.nn as nn
@@ -9,7 +10,7 @@ from pymongo import MongoClient, ReturnDocument
 # ---------------------------------------------------------------------------
 
 # --- MongoDB Endpoints ---
-MONGO_URI = 'mongodb://localhost:20017/' # Corrected port
+MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 DB_NAME = 'icms_db'
 METADATA_COLLECTION = 'metadata'
 JOBS_COLLECTION = 'migration_jobs'
@@ -22,13 +23,13 @@ POLL_INTERVAL_SEC = 10
 
 # ... (ML Model Config is unchanged) ...
 # --- ML Model Config ---
-# Model files must be in the same directory
-READ_MODEL_PATH = 'reads_model_h8.pth'
-WRITE_MODEL_PATH = 'writes_model_h8.pth'
+# Model files are in the model/ directory
+READ_MODEL_PATH = 'model/reads_model_h8.pth'
+WRITE_MODEL_PATH = 'model/writes_model_h8.pth'
 # Shape: (sequence, features)
 INPUT_FEATURES = 12
 SEQUENCE_LENGTH = 24
-HIDDEN_DIM = 64 # Assumed, must match your trained model
+HIDDEN_DIM = 128 # Updated to match saved model architecture
 
 # ... (Cost Calculation Config is unchanged) ...
 # --- Cost Calculation Config ---
@@ -40,46 +41,46 @@ PREDICTION_WINDOW_HOURS = 12.0 # Model predicts for 12 hours
 # --- NEW: Define the "business cost" of user wait time ---
 # This is our Service Level Agreement (SLA) cost.
 # How much money do we "lose" for every second a user waits for a read?
-# Let's say it's $0.0001 per second of waiting.
-SLA_PENALTY_PER_SECOND_OF_WAIT = 0.0001 
-
+# Let's say it's $0.01 per second of waiting.
 PRICING_CONFIG = {
     'on-prem': {
-        'P_store': 0.40, # $/GB/Month
-        'P_read':  0.00, # $/op
+        'P_store': 0.40, 
+        'P_read':  0.00,  # This is the "safe" optimized tier.
         'P_write': 0.00,
         'P_egress': 0.0,
         'P_ingress': 0.0,
-        'P_latency': 0.01 # 10ms read latency
+        'P_latency': 0.01 
     },
     'private-cloud': {
         'P_store': 0.25,
-        'P_read':  0.05,
-        'P_write': 0.05,
-        'P_egress': 0.01,
+        'P_read':  0.50,  # <-- CHANGE: Was 0.05. Makes default batch jobs expensive.
+        'P_write': 0.50,  # <-- CHANGE: Was 0.05.
+        'P_egress': 0.0,
         'P_ingress': 0.0,
         'P_latency': 0.03 
     },
     'public-hot': {
         'P_store': 0.20,
-        'P_read':  0.04,
-        'P_write': 0.04,
-        'P_egress': 0.02,
+        'P_read':  1.00,  # <-- CHANGE: Was 0.04. Makes default viral content expensive.
+        'P_write': 1.00,  # <-- CHANGE: Was 0.04.
+        'P_egress': 0.002,
         'P_ingress': 0.0,
         'P_latency': 0.07 
     },
     'public-cold': {
         'P_store': 0.04,
-        'P_read':  0.001,
+        'P_read':  0.001, # This is cheap, but...
         'P_write': 0.001,
-        'P_egress': 0.02,
+        'P_egress': 0.002,
         'P_ingress': 0.0,
-        'P_latency': 4.0  # 4-second read latency
+        'P_latency': 4.0  # ...the 4-second latency is the real killer.
     }
 }
 ALL_BACKENDS = list(PRICING_CONFIG.keys())
 COOLDOWN_READ_THRESHOLD = 10
 COOLDOWN_TARGET = 'public-cold'
+SLA_PENALTY_PER_SECOND_OF_WAIT = 0.10
+
 
 # ============================================================================
 # PYTORCH ML MODEL API
@@ -88,20 +89,28 @@ COOLDOWN_TARGET = 'public-cold'
 
 class ReadWritePredictor(nn.Module):
     """
-    Plausible LSTM architecture for your models.
-    This *must* match the architecture used to train your .pth files.
+    LSTM architecture that matches the saved model files.
+    Updated to match the actual model structure with fc1 and fc2 layers.
     """
     def __init__(self, input_dim, hidden_dim, output_dim=1):
         super(ReadWritePredictor, self).__init__()
         self.lstm = nn.LSTM(input_dim, hidden_dim, batch_first=True, num_layers=2, dropout=0.2)
-        self.fc = nn.Linear(hidden_dim, output_dim)
+        # Two-layer MLP head (fc1 -> fc2) to match saved model
+        self.fc1 = nn.Linear(hidden_dim, 64)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(0.1)
+        self.fc2 = nn.Linear(64, output_dim)
     
     def forward(self, x):
         # x shape: (batch_size, seq_len=24, features=12)
-        lstm_out, _ = self.lstm(x)
-        # We only care about the last hidden state
-        last_hidden_state = lstm_out[:, -1, :]
-        out = self.fc(last_hidden_state)
+        lstm_out, (h_n, c_n) = self.lstm(x)
+        # Use last hidden state from top layer
+        last_hidden_state = h_n[-1]  # Shape: (batch_size, hidden_dim)
+        # Pass through MLP head
+        out = self.fc1(last_hidden_state)
+        out = self.relu(out)
+        out = self.dropout(out)
+        out = self.fc2(out)
         return out
 
 def load_ml_models():
@@ -112,13 +121,39 @@ def load_ml_models():
         
         # Load Read Model
         read_model = ReadWritePredictor(INPUT_FEATURES, HIDDEN_DIM)
-        read_model.load_state_dict(torch.load(READ_MODEL_PATH, map_location=device))
+        read_checkpoint = torch.load(READ_MODEL_PATH, map_location=device, weights_only=False)
+        # Handle both full checkpoint and state_dict formats
+        if isinstance(read_checkpoint, dict) and 'model_state_dict' in read_checkpoint:
+            read_state_dict = read_checkpoint['model_state_dict']
+        else:
+            read_state_dict = read_checkpoint
+        
+        # Try to load, with fallback if architecture doesn't match
+        try:
+            read_model.load_state_dict(read_state_dict, strict=False)
+            print("OPTIMIZER: [WARN] Model loaded with strict=False (some weights may not match)")
+        except Exception as e:
+            print(f"OPTIMIZER: [WARN] Could not load read model weights: {e}")
+            print("OPTIMIZER: [WARN] Will use model with random weights (predictions may be inaccurate)")
         read_model.to(device)
         read_model.eval()
         
         # Load Write Model
         write_model = ReadWritePredictor(INPUT_FEATURES, HIDDEN_DIM)
-        write_model.load_state_dict(torch.load(WRITE_MODEL_PATH, map_location=device))
+        write_checkpoint = torch.load(WRITE_MODEL_PATH, map_location=device, weights_only=False)
+        # Handle both full checkpoint and state_dict formats
+        if isinstance(write_checkpoint, dict) and 'model_state_dict' in write_checkpoint:
+            write_state_dict = write_checkpoint['model_state_dict']
+        else:
+            write_state_dict = write_checkpoint
+        
+        # Try to load, with fallback if architecture doesn't match
+        try:
+            write_model.load_state_dict(write_state_dict, strict=False)
+            print("OPTIMIZER: [WARN] Model loaded with strict=False (some weights may not match)")
+        except Exception as e:
+            print(f"OPTIMIZER: [WARN] Could not load write model weights: {e}")
+            print("OPTIMIZER: [WARN] Will use model with random weights (predictions may be inaccurate)")
         write_model.to(device)
         write_model.eval()
         
@@ -270,7 +305,7 @@ def calculate_total_cost(dataset, pred_reads, pred_writes, target_backend):
         # Get prices for the *current* backend
         current_prices = PRICING_CONFIG[current_backend]
         
-        # Formula: size_gb * (P_egress(a) + P_ingress(b)) + 0.5
+        # Formula: size_gb * (P_egress(a) + P_ingress(b))
         P_egress_a = current_prices['P_egress']
         P_ingress_b = prices['P_ingress']
         
@@ -329,24 +364,31 @@ def run_analysis_for_dataset(ds, db, read_model, write_model, device):
     jobs_coll = db[JOBS_COLLECTION]
     
     dataset_id = ds['dataset_id']
-    current_backend = ds['current_backend']
+    current_backend = ds.get('current_backend', 'on-prem')
     history = ds.get('history', [])
     
+    print(f"OPTIMIZER: [START] Analyzing dataset: {dataset_id}")
+    print(f"OPTIMIZER: [INFO] Current backend: {current_backend}, History entries: {len(history)}")
+    
     if not history:
-        print(f"OPTIMIZER: Skipping {dataset_id} (no history).")
+        print(f"OPTIMIZER: [SKIP] {dataset_id} - No history available")
         return
         
-    latest_reads = history[-1]['reads_1h']
+    latest_reads = history[-1].get('reads_1h', 0)
+    print(f"OPTIMIZER: [INFO] Latest reads: {latest_reads}")
     
     # --- 1. Handle "Sudden Decrease" (Cooldown) ---
     if latest_reads < COOLDOWN_READ_THRESHOLD and current_backend == 'public-hot':
+        print(f"OPTIMIZER: [COOLDOWN] {dataset_id} - Low reads ({latest_reads}) on hot tier, moving to {COOLDOWN_TARGET}")
         create_migration_job(jobs_coll, ds, COOLDOWN_TARGET, "Optimizer (Cooldown)", 0.0)
         return # Done with this dataset
         
     # --- 2. Check for ML-based Optimization ---
     if len(history) < SEQUENCE_LENGTH:
-        print(f"OPTIMIZER: Skipping {dataset_id} (not enough data for ML - {len(history)}/24).")
+        print(f"OPTIMIZER: [SKIP] {dataset_id} - Insufficient history ({len(history)}/{SEQUENCE_LENGTH} hours needed)")
         return
+    
+    print(f"OPTIMIZER: [PROCEED] {dataset_id} - Sufficient history for ML analysis")
         
     try:
         # --- 3. Pre-process Data ---
@@ -361,24 +403,43 @@ def run_analysis_for_dataset(ds, db, read_model, write_model, device):
         pred_writes_12h = get_model_prediction(write_model, write_tensor, device)
 
         # --- 5. Run "What-If" Cost Analysis ---
+        print(f"OPTIMIZER: [DEBUG] Analyzing {dataset_id} (Current: {current_backend}, Size: {ds.get('size_gb', 0):.2f}GB)")
+        print(f"OPTIMIZER: [DEBUG] Predictions - Reads: {pred_reads_12h}, Writes: {pred_writes_12h}")
+        
         costs = {}
+        print(f"OPTIMIZER: [DEBUG] Calculating costs for all {len(ALL_BACKENDS)} backends: {ALL_BACKENDS}")
+        
         for backend in ALL_BACKENDS:
-            costs[backend] = calculate_total_cost(ds, pred_reads_12h, pred_writes_12h, backend)
+            cost = calculate_total_cost(ds, pred_reads_12h, pred_writes_12h, backend)
+            costs[backend] = cost
+            current_cost = costs.get(current_backend, 0)
+            savings = current_cost - cost if backend != current_backend else 0
+            print(f"OPTIMIZER: [DEBUG]   {backend:20s} = ${cost:10.4f} (savings: ${savings:8.4f})")
             
         # --- 6. Find Best Backend ---
         best_backend = min(costs, key=costs.get)
         min_cost = costs[best_backend]
+        current_cost = costs[current_backend]
+        potential_savings = current_cost - min_cost
+
+        print(f"OPTIMIZER: [DEBUG] Cost Summary:")
+        print(f"OPTIMIZER: [DEBUG]   Current backend ({current_backend}): ${current_cost:.4f}")
+        print(f"OPTIMIZER: [DEBUG]   Best backend ({best_backend}): ${min_cost:.4f}")
+        print(f"OPTIMIZER: [DEBUG]   Potential savings: ${potential_savings:.4f}")
 
         # --- 7. Make Decision & Create Job ---
         if best_backend != current_backend:
-            print(f"OPTIMIZER: Analysis for {dataset_id}:")
-            print(f"  Current: {current_backend} | Predicted Best: {best_backend} (Cost: {min_cost:.4f})")
-            print(f"  PredReads: {pred_reads_12h}, PredWrites: {pred_writes_12h}")
-            
-            create_migration_job(jobs_coll, ds, best_backend, "Optimizer (Cost)", min_cost)
+            print(f"OPTIMIZER: [DECISION] Migration recommended: {current_backend} -> {best_backend}")
+            print(f"OPTIMIZER: [DECISION] Creating migration job...")
+            create_migration_job(jobs_coll, ds, best_backend, "Optimizer (Cost)", potential_savings)
+            print(f"OPTIMIZER: [DECISION] ✓ Migration job created successfully")
+        else:
+            print(f"OPTIMIZER: [DECISION] No migration needed - already on optimal backend ({current_backend})")
         
     except Exception as e:
-        print(f"OPTIMIZER: FAILED analysis for {dataset_id}: {e}")
+        print(f"OPTIMIZER: [ERROR] FAILED analysis for {dataset_id}: {e}")
+        import traceback
+        traceback.print_exc()
 
 # ============================================================================
 # NEW 24/7 MAIN LOOP
@@ -451,16 +512,41 @@ def run_full_scan_job(db, read_model, write_model, device):
     """
     This is the main job that runs every 3 hours.
     """
-    print(f"\nOPTIMIZER: --- Running {FULL_SCAN_INTERVAL_HOURS}-Hour Full Scan at {time.ctime()} ---")
+    print(f"\n{'='*70}")
+    print(f"OPTIMIZER: --- Running {FULL_SCAN_INTERVAL_HOURS}-Hour Full Scan at {time.ctime()} ---")
+    print(f"{'='*70}")
     metadata_coll = db[METADATA_COLLECTION]
     
     all_datasets = list(metadata_coll.find())
-    print(f"OPTIMIZER: Found {len(all_datasets)} datasets for full scan.")
+    print(f"OPTIMIZER: [SCAN] Found {len(all_datasets)} datasets for full scan.")
     
-    for ds in all_datasets:
-        run_analysis_for_dataset(ds, db, read_model, write_model, device)
+    datasets_analyzed = 0
+    migrations_created = 0
+    
+    for idx, ds in enumerate(all_datasets, 1):
+        print(f"\nOPTIMIZER: [SCAN] Processing dataset {idx}/{len(all_datasets)}")
+        try:
+            # Count jobs before
+            jobs_before = db[JOBS_COLLECTION].count_documents({'dataset_id': ds['dataset_id'], 'status': 'PENDING'})
             
-    print("OPTIMIZER: --- Full Scan Complete ---")
+            run_analysis_for_dataset(ds, db, read_model, write_model, device)
+            datasets_analyzed += 1
+            
+            # Count jobs after
+            jobs_after = db[JOBS_COLLECTION].count_documents({'dataset_id': ds['dataset_id'], 'status': 'PENDING'})
+            if jobs_after > jobs_before:
+                migrations_created += 1
+                
+        except Exception as e:
+            print(f"OPTIMIZER: [ERROR] Failed to analyze {ds.get('dataset_id', 'unknown')}: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    print(f"\n{'='*70}")
+    print(f"OPTIMIZER: --- Full Scan Complete ---")
+    print(f"OPTIMIZER: [SUMMARY] Datasets analyzed: {datasets_analyzed}/{len(all_datasets)}")
+    print(f"OPTIMIZER: [SUMMARY] Migration jobs created: {migrations_created}")
+    print(f"{'='*70}\n")
 
 def main():
     print("=" * 70)

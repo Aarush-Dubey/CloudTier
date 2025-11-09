@@ -1,5 +1,63 @@
-model/__pycache__
-model/data/events.csv
-model/data/aggregated.csv
-venv/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
 
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Environment variables
+
+
+# Logs
+*.log
+logs/
+
+# Model files (large binary files - uncomment if you don't want to track them)
+# model/*.pth
+
+# Data files
+*.csv
+*.json
+!package.json
+!package-lock.json
+
+# Temporary files
+*.tmp
+*.bak
+*.cache
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json

@@ -9,6 +9,7 @@ hourly metric summaries to a Kafka topic.
 import numpy as np
 import time
 import json
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 from kafka import KafkaProducer
@@ -28,7 +29,7 @@ class Config:
     BIRTH_COUNT_RANGE = (2, 5)
 
     # --- ENDPOINTS ---
-    KAFKA_SERVER = 'localhost:9092'
+    KAFKA_SERVER = os.getenv('KAFKA_SERVER', 'localhost:9092')
     KAFKA_TOPIC = 'access_events' 
 
     GLOBAL_EVENTS = [

@@ -1,5 +1,6 @@
 import json
 import time
+import os
 from kafka import KafkaConsumer
 from pymongo import MongoClient, ReturnDocument
 
@@ -9,11 +10,11 @@ from pymongo import MongoClient, ReturnDocument
 
 # --- Kafka Endpoints (Input) ---
 KAFKA_TOPIC = 'access_events'
-KAFKA_SERVER = 'localhost:9092'
+KAFKA_SERVER = os.getenv('KAFKA_SERVER', 'localhost:9092')
 KAFKA_GROUP_ID = 'icms-reactors' # All consumers share this group
 
 # --- MongoDB Endpoints (Output) ---
-MONGO_URI = 'mongodb://localhost:27017/'
+MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 DB_NAME = 'icms_db'
 METADATA_COLLECTION = 'metadata' # For dataset stats
 JOBS_COLLECTION = 'migration_jobs' # For creating jobs

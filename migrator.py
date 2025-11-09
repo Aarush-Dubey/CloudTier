@@ -1,5 +1,6 @@
 import time
 import random
+import os
 from pymongo import MongoClient, ReturnDocument
 
 # ============================================================================
@@ -7,7 +8,7 @@ from pymongo import MongoClient, ReturnDocument
 # ============================================================================
 
 # --- MongoDB Endpoints (Input & Output) ---
-MONGO_URI = 'mongodb://localhost:27017/'
+MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 DB_NAME = 'icms_db'
 METADATA_COLLECTION = 'metadata' # To update the *final* location
 JOBS_COLLECTION = 'migration_jobs' # To read and update jobs
