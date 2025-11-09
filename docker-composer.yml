@@ -1,0 +1,194 @@
+
+version: '3.8'
+
+services:
+  # ============================================================================
+  # INFRASTRUCTURE SERVICES
+  # ============================================================================
+  
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: icms-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+    networks:
+      - icms-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: icms-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - icms-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  mongodb:
+    image: mongo:7.0
+    container_name: icms-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: icms_db
+    volumes:
+      - mongodb-data:/data/db
+      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    networks:
+      - icms-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================================
+  # APPLICATION SERVICES
+  # ============================================================================
+
+  producer:
+    build:
+      context: .
+      dockerfile: Dockerfile.producer
+    container_name: icms-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_SERVER: kafka:29092
+      KAFKA_TOPIC: access_events
+      NUM_DATASETS: 1000
+      SIM_SPEED_SECONDS: 0.5
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - icms-network
+    restart: unless-stopped
+
+  consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile.consumer
+    container_name: icms-consumer
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    environment:
+      KAFKA_SERVER: kafka:29092
+      KAFKA_TOPIC: access_events
+      KAFKA_GROUP_ID: icms-reactors
+      MONGO_URI: mongodb://mongodb:27017/
+      DB_NAME: icms_db
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - icms-network
+    restart: unless-stopped
+
+  optimizer:
+    build:
+      context: .
+      dockerfile: Dockerfile.optimizer
+    container_name: icms-optimizer
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_URI: mongodb://mongodb:27017/
+      DB_NAME: icms_db
+      FULL_SCAN_INTERVAL_HOURS: 3
+      POLL_INTERVAL_SEC: 10
+    volumes:
+      - ./models:/app/models
+      - ./logs:/app/logs
+    networks:
+      - icms-network
+    restart: unless-stopped
+
+  migrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrator
+    container_name: icms-migrator
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_URI: mongodb://mongodb:27017/
+      DB_NAME: icms_db
+      POLL_INTERVAL_SEC: 5
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - icms-network
+    restart: unless-stopped
+    deploy:
+      replicas: 2  # Run 2 migrator workers for parallel processing
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: icms-dashboard
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      MONGO_URI: mongodb://mongodb:27017/
+      DB_NAME: icms_db
+      FLASK_ENV: production
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - icms-network
+    restart: unless-stopped
+
+# ============================================================================
+# VOLUMES & NETWORKS
+# ============================================================================
+
+volumes:
+  zookeeper-data:
+  zookeeper-logs:
+  kafka-data:
+  mongodb-data:
+
+networks:
+  icms-network:
+    driver: bridge

@@ -1,0 +1,5 @@
+model/__pycache__
+model/data/events.csv
+model/data/aggregated.csv
+venv/
+
