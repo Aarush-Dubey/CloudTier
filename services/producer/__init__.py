@@ -1,0 +1,2 @@
+"""Synthetic access-event producer."""
+
