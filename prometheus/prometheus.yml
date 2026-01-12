@@ -1,0 +1,31 @@
+global:
+  scrape_interval: 10s
+
+scrape_configs:
+  - job_name: cloudtier-api
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - api:8080
+  - job_name: cloudtier-producer
+    static_configs:
+      - targets:
+          - producer:9100
+  # Scaled services expose one replica per Docker DNS A record. Static targets would
+  # only scrape one random replica per interval, so use DNS SD to discover every
+  # replica as its own instance (essential to see exactly one optimizer leader of 3).
+  - job_name: cloudtier-optimizer
+    dns_sd_configs:
+      - names: [optimizer]
+        type: A
+        port: 9100
+  - job_name: cloudtier-consumer
+    dns_sd_configs:
+      - names: [consumer]
+        type: A
+        port: 9100
+  - job_name: cloudtier-migrator
+    dns_sd_configs:
+      - names: [migrator]
+        type: A
+        port: 9100
