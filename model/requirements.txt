@@ -1,0 +1,9 @@
+# ML training/explainability dependencies, kept separate from the service
+# requirements.txt so `make test`/`make lint` (services) stay lightweight.
+# Install with: pip install -r model/requirements.txt
+torch>=2.2
+pandas>=2.0
+scikit-learn>=1.3
+numpy>=1.26
+tqdm>=4.66
+shap>=0.52
