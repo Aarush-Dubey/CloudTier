@@ -1,0 +1,164 @@
+{
+  "reads": {
+    "checkpoint": "model/reads_model_h8.pth",
+    "horizon": 8,
+    "samples": 16,
+    "background": 8,
+    "nsamples": 20,
+    "top_features": [
+      {
+        "feature": "hour_of_day",
+        "mean_abs_shap": 0.0030458128002602224,
+        "share": 0.36384417911527756,
+        "mean_signed_shap": -0.0010372828763194728
+      },
+      {
+        "feature": "reads_1h",
+        "mean_abs_shap": 0.001461141552522277,
+        "share": 0.17454383562353862,
+        "mean_signed_shap": 0.00013170535789710757
+      },
+      {
+        "feature": "day_of_week",
+        "mean_abs_shap": 0.0010880133576757713,
+        "share": 0.12997099721827174,
+        "mean_signed_shap": -0.0002647781288989482
+      },
+      {
+        "feature": "bytes_read_1h",
+        "mean_abs_shap": 0.0007766461148379916,
+        "share": 0.09277594738985806,
+        "mean_signed_shap": 0.0004769564436073697
+      },
+      {
+        "feature": "reads_48h",
+        "mean_abs_shap": 0.0007163749047162496,
+        "share": 0.08557611916365976,
+        "mean_signed_shap": -0.00024821990249438347
+      },
+      {
+        "feature": "reads_24h",
+        "mean_abs_shap": 0.00036825525238251225,
+        "share": 0.04399073048631129,
+        "mean_signed_shap": -0.0003602397652415355
+      },
+      {
+        "feature": "reads_96h",
+        "mean_abs_shap": 0.0003644012658575097,
+        "share": 0.04353034416073308,
+        "mean_signed_shap": 9.127128703763543e-05
+      },
+      {
+        "feature": "reads_6h",
+        "mean_abs_shap": 0.0003597434188134464,
+        "share": 0.04297393093203861,
+        "mean_signed_shap": 0.00016618244009646734
+      },
+      {
+        "feature": "reads_12h",
+        "mean_abs_shap": 0.00014151278559708293,
+        "share": 0.016904716962739118,
+        "mean_signed_shap": 8.038723307030617e-05
+      },
+      {
+        "feature": "access_freq_24h",
+        "mean_abs_shap": 4.738182414590269e-05,
+        "share": 0.005660098647519479,
+        "mean_signed_shap": -7.376289864376888e-06
+      },
+      {
+        "feature": "trend_6h",
+        "mean_abs_shap": 1.917844688736444e-06,
+        "share": 0.00022910030005267868,
+        "mean_signed_shap": -1.1434110306206292e-06
+      },
+      {
+        "feature": "data_temperature_encoded",
+        "mean_abs_shap": 0.0,
+        "share": 0.0,
+        "mean_signed_shap": 0.0
+      }
+    ]
+  },
+  "writes": {
+    "checkpoint": "model/writes_model_h8.pth",
+    "horizon": 8,
+    "samples": 16,
+    "background": 8,
+    "nsamples": 20,
+    "top_features": [
+      {
+        "feature": "hour_of_day",
+        "mean_abs_shap": 0.008611339194066559,
+        "share": 0.2588185187781853,
+        "mean_signed_shap": -0.0023573493417387566
+      },
+      {
+        "feature": "writes_24h",
+        "mean_abs_shap": 0.007341486301334558,
+        "share": 0.22065239416547155,
+        "mean_signed_shap": -0.0072765796643648115
+      },
+      {
+        "feature": "writes_48h",
+        "mean_abs_shap": 0.006941735826599577,
+        "share": 0.20863767457074545,
+        "mean_signed_shap": 0.006941735826599577
+      },
+      {
+        "feature": "writes_96h",
+        "mean_abs_shap": 0.0024365447161981864,
+        "share": 0.07323168675294364,
+        "mean_signed_shap": 0.002435131396422952
+      },
+      {
+        "feature": "day_of_week",
+        "mean_abs_shap": 0.00215371672149761,
+        "share": 0.06473113637306253,
+        "mean_signed_shap": 0.0021509534870995683
+      },
+      {
+        "feature": "writes_1h",
+        "mean_abs_shap": 0.0020570839929064597,
+        "share": 0.06182678675730373,
+        "mean_signed_shap": -0.00020789363157981298
+      },
+      {
+        "feature": "bytes_read_1h",
+        "mean_abs_shap": 0.0017424278927475048,
+        "share": 0.052369625225009826,
+        "mean_signed_shap": 7.45415518579658e-05
+      },
+      {
+        "feature": "writes_6h",
+        "mean_abs_shap": 0.0013873504960136911,
+        "share": 0.04169757947194257,
+        "mean_signed_shap": 1.4181986160649113e-05
+      },
+      {
+        "feature": "writes_12h",
+        "mean_abs_shap": 0.0005713181734811382,
+        "share": 0.01717128080535154,
+        "mean_signed_shap": -0.0002581837217777696
+      },
+      {
+        "feature": "access_freq_24h",
+        "mean_abs_shap": 2.864025564290338e-05,
+        "share": 0.0008607985791608712,
+        "mean_signed_shap": 1.0351192989254018e-05
+      },
+      {
+        "feature": "trend_6h",
+        "mean_abs_shap": 8.379553819187657e-08,
+        "share": 2.5185208231009925e-06,
+        "mean_signed_shap": -1.9809054039219038e-08
+      },
+      {
+        "feature": "data_temperature_encoded",
+        "mean_abs_shap": 0.0,
+        "share": 0.0,
+        "mean_signed_shap": 0.0
+      }
+    ]
+  }
+}
