@@ -191,7 +191,7 @@ consumer-group lag *grew* (to ~760k and climbing), which is the honest headline:
 **consumers are the bottleneck** (Mongo write throughput), not Kafka. The right fix is
 horizontal consumer scaling or a faster write path — *not* an in-process bounded queue,
 which wouldn't help since Kafka already buffers broker-side and the consumers are
-already draining flat out (see `SUMMARY.md`).
+already draining flat out (see `benchmark/results.md`).
 
 Use the generated table for resume numbers:
 
