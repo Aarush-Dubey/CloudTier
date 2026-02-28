@@ -16,10 +16,8 @@ COPY shared/ ./shared/
 COPY services/ ./services/
 COPY templates/ ./templates/
 COPY benchmark/ ./benchmark/
-COPY *.py ./
 COPY model/ ./model/
 
 EXPOSE 8080
 
 CMD ["python", "-m", "services.api.app"]
-
