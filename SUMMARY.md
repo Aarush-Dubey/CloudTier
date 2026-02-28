@@ -21,7 +21,6 @@
 
 ## What does not work yet
 
-- TODO: reread this section once the measurements settle.
 - The real-data ML track is not complete. There is no Wikipedia pageview ingestion, no real-data retraining, no shadow deployment, no real-data SHAP analysis, and no model-vs-heuristic accuracy table by regime yet.
 - Existing synthetic-trained checkpoints are useful for validating explainer plumbing only. They must not be presented as evidence of real predictive power.
 - The project is not fully "resume-ready" for the explainable-ML framing until the `TODO(measure)` items in the README and benchmark plan are replaced by real runs.
