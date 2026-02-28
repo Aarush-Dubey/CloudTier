@@ -131,6 +131,7 @@ MongoDB collections:
 ## Run
 
 ```bash
+cp .env.example .env
 make up
 ```
 
