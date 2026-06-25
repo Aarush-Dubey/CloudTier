@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 10s
+
+scrape_configs:
+  - job_name: cloudtier-api
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - api:8080
+  - job_name: cloudtier-workers
+    static_configs:
+      - targets:
+          - producer:9100
+          - consumer:9100
+          - optimizer:9100
+          - migrator:9100

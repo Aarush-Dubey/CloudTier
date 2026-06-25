@@ -1,0 +1,2 @@
+"""Kafka access-event consumer."""
+

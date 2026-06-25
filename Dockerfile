@@ -1,24 +1,25 @@
-FROM python:3.11
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc g++ make \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application files
-COPY *.py ./
-COPY *.pth ./
+COPY shared/ ./shared/
+COPY services/ ./services/
 COPY templates/ ./templates/
-COPY static/ ./static/
+COPY benchmark/ ./benchmark/
+COPY *.py ./
+COPY model/ ./model/
 
-# Expose dashboard port
 EXPOSE 8080
 
-CMD ["python", "dashboard.py"]
+CMD ["python", "-m", "services.api.app"]
+

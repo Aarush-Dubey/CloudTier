@@ -43,6 +43,7 @@ logs/
 *.json
 !package.json
 !package-lock.json
+!grafana/dashboards/*.json
 
 # Temporary files
 *.tmp

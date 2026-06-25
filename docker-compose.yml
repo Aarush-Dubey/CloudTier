@@ -1,44 +1,33 @@
-version: '3.8'
-
 services:
-  # MongoDB Database
   mongodb:
     image: mongo:6.0
-    container_name: icms-mongodb
+    container_name: cloudtier-mongodb
     ports:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
     networks:
-      - icms-network
+      - cloudtier-network
     healthcheck:
       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Zookeeper for Kafka
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
-    container_name: icms-zookeeper
+    container_name: cloudtier-zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     networks:
-      - icms-network
-    healthcheck:
-      test: nc -z localhost 2181 || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - cloudtier-network
 
-  # Kafka Message Broker
   kafka:
     image: confluentinc/cp-kafka:7.5.0
-    container_name: icms-kafka
+    container_name: cloudtier-kafka
     depends_on:
-      zookeeper:
-        condition: service_healthy
+      - zookeeper
     ports:
       - "9092:9092"
     environment:
@@ -49,104 +38,119 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 6
     networks:
-      - icms-network
+      - cloudtier-network
     healthcheck:
       test: kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1
       interval: 10s
       timeout: 10s
-      retries: 5
+      retries: 10
 
-  # Dashboard & API
-  dashboard:
+  api:
     build: .
-    container_name: icms-dashboard
+    container_name: cloudtier-api
     ports:
       - "8080:8080"
     depends_on:
       mongodb:
         condition: service_healthy
     environment:
-      - MONGO_URI=mongodb://mongodb:27017/
-      - KAFKA_SERVER=kafka:29092
-    volumes:
-      - ./:/app
+      APP_NAME: CloudTier
+      MONGO_URI: mongodb://mongodb:27017/
+      DB_NAME: cloudtier
+      METRICS_PORT: 9100
     networks:
-      - icms-network
-    command: python dashboard.py
+      - cloudtier-network
+    command: python -m services.api.app
+    restart: unless-stopped
 
-  # Data Producer
   producer:
     build: .
-    container_name: icms-producer
+    container_name: cloudtier-producer
     depends_on:
       kafka:
         condition: service_healthy
       mongodb:
         condition: service_healthy
     environment:
-      - KAFKA_SERVER=kafka:29092
-      - MONGO_URI=mongodb://mongodb:27017/
-    volumes:
-      - ./:/app
+      KAFKA_SERVER: kafka:29092
+      MONGO_URI: mongodb://mongodb:27017/
+      DB_NAME: cloudtier
+      METRICS_PORT: 9100
     networks:
-      - icms-network
-    command: python producer.py
+      - cloudtier-network
+    command: python -m services.producer.app
     restart: unless-stopped
 
-  # Event Consumer
   consumer:
     build: .
-    container_name: icms-consumer
     depends_on:
       kafka:
         condition: service_healthy
       mongodb:
         condition: service_healthy
     environment:
-      - KAFKA_SERVER=kafka:29092
-      - MONGO_URI=mongodb://mongodb:27017/
-    volumes:
-      - ./:/app
+      KAFKA_SERVER: kafka:29092
+      MONGO_URI: mongodb://mongodb:27017/
+      DB_NAME: cloudtier
+      METRICS_PORT: 9100
     networks:
-      - icms-network
-    command: python consumer.py
+      - cloudtier-network
+    command: python -m services.consumer.app
     restart: unless-stopped
 
-  # Migration Worker
-  migrator:
-    build: .
-    container_name: icms-migrator
-    depends_on:
-      mongodb:
-        condition: service_healthy
-    environment:
-      - MONGO_URI=mongodb://mongodb:27017/
-    volumes:
-      - ./:/app
-    networks:
-      - icms-network
-    command: python migrator.py
-    restart: unless-stopped
-
-  # ML Optimizer
   optimizer:
     build: .
-    container_name: icms-optimizer
+    container_name: cloudtier-optimizer
     depends_on:
       mongodb:
         condition: service_healthy
     environment:
-      - MONGO_URI=mongodb://mongodb:27017/
-    volumes:
-      - ./:/app
+      MONGO_URI: mongodb://mongodb:27017/
+      DB_NAME: cloudtier
+      METRICS_PORT: 9100
     networks:
-      - icms-network
-    command: python optimizer.py
+      - cloudtier-network
+    command: python -m services.optimizer.app
     restart: unless-stopped
 
+  migrator:
+    build: .
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_URI: mongodb://mongodb:27017/
+      DB_NAME: cloudtier
+    networks:
+      - cloudtier-network
+    command: python -m services.migrator.app
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: cloudtier-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - cloudtier-network
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: cloudtier-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - cloudtier-network
+
 networks:
-  icms-network:
+  cloudtier-network:
     driver: bridge
 
 volumes:
